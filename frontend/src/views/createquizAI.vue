@@ -202,7 +202,8 @@ async function saveQuizAndStart() {
     const questionsToSave = quiz.value.questions.map((q: any) => ({
       question: q.question || q.content,
       answer: q.answer || q.correct || (q.choices && q.choices[q.answer_index]),
-      choices: q.choices || q.options || []
+      choices: q.choices || q.options || [],
+      citation: q.citation || q.context || q.source || null
     }))
 
     // Lưu quiz vào DB
