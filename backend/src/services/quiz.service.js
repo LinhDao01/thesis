@@ -84,7 +84,7 @@ module.exports = {
                 options: options,
                 correct: q.correct || '', // Ensure correct is never null
                 correctIndex: correctIndex,
-                citation: q.citation || q.content || null
+                citation: q.citation || null
             };
         })
     },
