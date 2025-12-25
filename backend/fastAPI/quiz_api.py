@@ -40,6 +40,13 @@ nlp = spacy.load("en_core_web_sm")
 sbert = SentenceTransformer("all-MiniLM-L6-v2")
 
 
+def clean_question(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    if cleaned and not cleaned.endswith("?"):
+        cleaned += "?"
+    return cleaned
+
+
 def extract_key_answers(context, max_answers=5):
     doc = nlp(context)
     answers = []
@@ -65,6 +72,50 @@ def extract_key_answers(context, max_answers=5):
 
     return final[:max_answers]
 
+
+def generate_question(context: str, answer: str, q_type: str = "short") -> str:
+    prompt_templates = {
+        "short": (
+            "Create a concise question that can be answered with the given answer. "
+            "Keep it direct and grounded in the context.\n"
+            f"Context: {context}\nAnswer: {answer}\nQuestion:"
+        ),
+        "cloze": (
+            "Write a fill-in-the-blank question by removing the answer from a key sentence. "
+            "Use '____' for the blank.\n"
+            f"Context: {context}\nAnswer to hide: {answer}\nCloze question:"
+        ),
+        "mcq": (
+            "Generate the stem for a multiple-choice question using the context and answer. "
+            "Only return the question text (no choices).\n"
+            f"Context: {context}\nCorrect answer: {answer}\nQuestion:"
+        ),
+    }
+
+    prompt = prompt_templates.get(q_type, prompt_templates["short"])
+    inputs = qag_tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+        padding=True,
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = qag_model.generate(
+            **inputs,
+            max_new_tokens=64,
+            num_beams=4,
+            do_sample=True,
+            top_p=0.9,
+            temperature=0.9,
+            repetition_penalty=1.1,
+        )
+
+    decoded = qag_tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return clean_question(decoded) or f"What is {answer}?"
+
+
 def is_bad_answer(ans: str) -> bool:
     ans = ans.lower()
 
@@ -85,15 +136,59 @@ def is_bad_answer(ans: str) -> bool:
 
 QUESTION_TYPES = ["short", "cloze", "mcq"]
 
+def build_question_item(context: str, answer: str, q_type: str):
+    if not answer or is_bad_answer(answer):
+        return None
+
+    answer_clean = answer.strip()
+    if q_type == "cloze":
+        cloze = generate_cloze(context, answer_clean)
+        if not cloze:
+            cloze = f"In the context above, ____ refers to {answer_clean}."
+        return {
+            "context": context,
+            "type": "cloze",
+            "question": cloze,
+            "answer": answer_clean,
+        }
+
+    question_text = generate_question(context, answer_clean, q_type)
+    item = {
+        "context": context,
+        "type": q_type,
+        "question": question_text,
+        "answer": answer_clean,
+    }
+
+    if q_type == "mcq":
+        distractors = generate_distractors(
+            context,
+            question_text,
+            answer_clean,
+            k=3,
+        )
+        choices = [answer_clean] + distractors
+        random.shuffle(choices)
+        item["choices"] = choices
+        item["distractors"] = distractors
+        item["answer_index"] = (
+            choices.index(answer_clean) if answer_clean in choices else 0
+        )
+
+    return item
+
+
 def generate_questions_from_context(
     context,
     max_questions_per_context=2
 ):
     questions = []
     answers = extract_key_answers(context, max_answers=5)
-    random.shuffle(answers)
 
     used_answers = set()
+    type_cursor = QUESTION_TYPES.copy()
+    random.shuffle(type_cursor)
+    type_idx = 0
 
     for ans in answers:
         if len(questions) >= max_questions_per_context:
@@ -101,32 +196,12 @@ def generate_questions_from_context(
         if ans.lower() in used_answers:
             continue
 
-        q_type = random.choice(QUESTION_TYPES)
-        base_question = generate_question(context, ans)
+        q_type = type_cursor[type_idx % len(QUESTION_TYPES)]
+        type_idx += 1
 
-        item = {
-            "context": context,
-            "type": q_type,
-            "question": base_question,
-            "answer": ans
-        }
-
-        # Cloze handling
-        if q_type == "cloze":
-            cloze = generate_cloze(context, ans)
-            if cloze:
-                item["question"] = cloze
-            else:
-                item["type"] = "short"
-
-        # MCQ handling
-        if item["type"] == "mcq":
-            item["distractors"] = generate_distractors(
-                context,
-                item["question"],
-                ans,
-                k=3
-            )
+        item = build_question_item(context, ans, q_type)
+        if not item:
+            continue
 
         questions.append(item)
         used_answers.add(ans.lower())
@@ -272,3 +347,129 @@ def generate_quiz_from_pdf(
         ctx_idx += 1
 
     return quiz
+
+
+def split_contexts(text: str, max_words: int = 120):
+    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+    contexts = []
+
+    for para in paragraphs:
+        words = para.split()
+        for i in range(0, len(words), max_words):
+            chunk = " ".join(words[i:i + max_words])
+            if len(chunk.split()) >= 8:
+                contexts.append(chunk)
+
+    if not contexts and text.strip():
+        fallback = " ".join(text.split()[:max_words])
+        if fallback:
+            contexts.append(fallback)
+
+    return contexts
+
+
+def generate_questions(text: str, top_n: int = 4):
+    try:
+        target_total = max(int(top_n), len(QUESTION_TYPES))
+    except (TypeError, ValueError):
+        target_total = len(QUESTION_TYPES)
+
+    contexts = split_contexts(text, max_words=150)
+    if not contexts:
+        return []
+
+    questions = []
+    used_answers = set()
+    missing_types = set(QUESTION_TYPES)
+
+    # First pass: ensure at least one of each question type
+    for q_type in QUESTION_TYPES:
+        if q_type not in missing_types:
+            continue
+
+        for context in contexts:
+            answers = extract_key_answers(context, max_answers=target_total * 2)
+            random.shuffle(answers)
+
+            for ans in answers:
+                if ans.lower() in used_answers or is_bad_answer(ans):
+                    continue
+
+                item = build_question_item(context, ans, q_type)
+                if item:
+                    questions.append(item)
+                    used_answers.add(ans.lower())
+                    missing_types.discard(q_type)
+                    break
+
+            if q_type not in missing_types:
+                break
+
+    # Second pass: fill remaining slots up to target_total
+    for context in contexts:
+        if len(questions) >= target_total:
+            break
+
+        answers = extract_key_answers(context, max_answers=target_total * 2)
+        random.shuffle(answers)
+
+        for ans in answers:
+            if len(questions) >= target_total:
+                break
+            if ans.lower() in used_answers or is_bad_answer(ans):
+                continue
+
+            q_type = random.choice(QUESTION_TYPES)
+            item = build_question_item(context, ans, q_type)
+            if item:
+                questions.append(item)
+                used_answers.add(ans.lower())
+                if q_type in missing_types:
+                    missing_types.discard(q_type)
+
+    # Final fallback: if any type is still missing, synthesize lightweight items
+    if missing_types:
+        fallback_context = contexts[0]
+        fallback_answers = extract_key_answers(fallback_context, max_answers=target_total) or [fallback_context.split()[0]]
+
+        for q_type in list(missing_types):
+            for ans in fallback_answers:
+                if ans.lower() in used_answers or is_bad_answer(ans):
+                    continue
+
+                item = build_question_item(fallback_context, ans, q_type)
+                if item:
+                    questions.append(item)
+                    used_answers.add(ans.lower())
+                    missing_types.discard(q_type)
+                    break
+
+            if q_type in missing_types:
+                placeholder = fallback_answers[0] if fallback_answers else "the topic"
+                if q_type == "cloze":
+                    questions.append({
+                        "context": fallback_context,
+                        "type": "cloze",
+                        "question": f"In the passage, ____ refers to {placeholder}.",
+                        "answer": placeholder,
+                    })
+                elif q_type == "mcq":
+                    choices = [placeholder, "Not specified", "Unknown", "Cannot be determined"]
+                    questions.append({
+                        "context": fallback_context,
+                        "type": "mcq",
+                        "question": f"What does the text mention about {placeholder}?",
+                        "answer": placeholder,
+                        "choices": choices,
+                        "answer_index": 0,
+                    })
+                else:
+                    questions.append({
+                        "context": fallback_context,
+                        "type": "short",
+                        "question": f"What is {placeholder}?",
+                        "answer": placeholder,
+                    })
+                missing_types.discard(q_type)
+
+    return questions[:target_total]
