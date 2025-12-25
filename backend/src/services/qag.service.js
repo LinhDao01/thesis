@@ -2,6 +2,74 @@ const fs = require('fs').promises
 const path = require('path')
 const pythonService = require('./python.service')
 
+function preprocessText(rawText = '') {
+  if (!rawText || typeof rawText !== 'string') return []
+
+  // Normalize whitespace and remove control characters
+  const cleaned = rawText
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (!cleaned) return []
+
+  const words = cleaned.split(/\s+/)
+  const chunks = []
+  let current = []
+
+  const minWords = 100
+  const maxWords = 250
+
+  for (let i = 0; i < words.length; i++) {
+    current.push(words[i])
+
+    const isSentenceBoundary = /[.!?]$/.test(words[i])
+    const reachedMin = current.length >= minWords
+    const reachedMax = current.length >= maxWords
+
+    if (reachedMax || (reachedMin && isSentenceBoundary)) {
+      chunks.push(current.join(' '))
+      current = []
+    }
+  }
+
+  if (current.length > 0) {
+    // Add the remaining words as the final chunk
+    chunks.push(current.join(' '))
+  }
+
+  return chunks
+}
+
+function attachCitations(questions = [], fallback) {
+  const isArrayFallback = Array.isArray(fallback) && fallback.length > 0
+  const fallbackText = !isArrayFallback && typeof fallback === 'string' ? fallback : null
+
+  const getFallbackCitation = (index) => {
+    if (isArrayFallback) {
+      return fallback[index % fallback.length]
+    }
+    return fallbackText
+  }
+
+  return questions.map((q, idx) => {
+    const citation =
+      q.citation ||
+      q.context ||
+      (typeof q.source === 'string' ? q.source : '') ||
+      getFallbackCitation(idx) ||
+      null
+
+    return {
+      ...q,
+      citation,
+      contexts: fallback // keep contexts on each question so we can persist later if needed
+    }
+  })
+}
+
 // Simple fallback quiz generator (very basic)
 function generateSimpleQuiz(text, numQuestions = 5) {
   const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 20)
@@ -39,6 +107,7 @@ function generateSimpleQuiz(text, numQuestions = 5) {
       type: 'mcq',
       question: question,
       answer: keyWord,
+      citation: sentence,
       choices: choices,
       answer_index: correctIndex >= 0 ? correctIndex : 0
     })
@@ -136,11 +205,28 @@ async function callQAGSpace(text, maxQuestions = 5) {
 
 
 exports.generateFromText = async (text, numQuestions) => {
+  const contexts = preprocessText(text)
+  const payload = contexts.length ? contexts.join('\n\n') : text
+  const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+  const decoratedQuestions = (rawQuestions) => {
+    const wrapped = Array.isArray(rawQuestions) ? { questions: rawQuestions } : (rawQuestions || { questions: [] })
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    wrapped.contexts = fallbackContexts
+    console.log('[QAG] generateFromText - questions with citation', wrapped.questions?.map((q, idx) => ({
+      idx,
+      hasCitation: !!q.citation,
+      citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+    })))
+    return wrapped
+  }
+
+  console.log('[QAG] generateFromText - contexts', { contextsCount: contexts.length, sample: fallbackContexts[0]?.slice(0, 200) })
+  console.log('[QAG] generateFromText - payload length', payload?.length || 0)
+
   // Use Python script to generate quiz
   try {
-    const questions = await pythonService.generateQuizFromText(text, numQuestions || 5)
-    // Python script returns array directly, wrap it
-    return Array.isArray(questions) ? { questions } : questions
+    const questions = await pythonService.generateQuizFromText(payload, numQuestions || 5)
+    return decoratedQuestions(questions)
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
     
@@ -148,7 +234,10 @@ exports.generateFromText = async (text, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        return await callQAGSpace(text, numQuestions || 5)
+        console.log('[QAG] HF fallback - contexts', { contextsCount: contexts.length, sample: fallbackContexts[0]?.slice(0, 200) })
+
+        const res = await callQAGSpace(payload, numQuestions || 5)
+        return decoratedQuestions(res.questions || res)
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
         // Continue to simple fallback
@@ -161,7 +250,7 @@ exports.generateFromText = async (text, numQuestions) => {
       const simpleQuiz = generateSimpleQuiz(text, numQuestions || 5)
       if (simpleQuiz.questions && simpleQuiz.questions.length > 0) {
         console.log(`Generated ${simpleQuiz.questions.length} questions using simple fallback`)
-        return simpleQuiz
+        return decoratedQuestions(simpleQuiz.questions)
       }
     } catch (simpleError) {
       console.error('Simple fallback also failed:', simpleError.message)
@@ -229,12 +318,41 @@ exports.generateFromFile = async (file, numQuestions) => {
     throw err
   }
 
-  // Use Python script to generate quiz với numQuestions được truyền vào
+  const contexts = preprocessText(content)
+  const payloadContext = contexts.length ? contexts.join('\n\n') : content
+  const fallbackContexts = contexts.length ? contexts : (payloadContext ? [payloadContext] : [])
+  const decoratedQuestions = (rawQuestions) => {
+    const wrapped = Array.isArray(rawQuestions) ? { questions: rawQuestions } : (rawQuestions || { questions: [] })
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    wrapped.contexts = fallbackContexts
+    console.log('[QAG] generateFromFile - questions with citation', wrapped.questions?.map((q, idx) => ({
+      idx,
+      hasCitation: !!q.citation,
+      citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+    })))
+    return wrapped
+  }
   const defaultQuestions = numQuestions || 10
+
+  const attachAndWrap = (rawQuestions) => {
+    const wrapped = Array.isArray(rawQuestions) ? { questions: rawQuestions } : (rawQuestions || { questions: [] })
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    wrapped.contexts = fallbackContexts
+    console.log('[QAG] generateFromFile - questions with citation', wrapped.questions?.map((q, idx) => ({
+      idx,
+      hasCitation: !!q.citation,
+      citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+    })))
+    return wrapped
+  }
+
+  console.log('[QAG] generateFromFile - contexts', { contextsCount: contexts.length, sample: fallbackContexts[0]?.slice(0, 200) })
+  console.log('[QAG] generateFromFile - payload length', payloadContext?.length || 0)
+
+  // Use Python script to generate quiz với numQuestions được truyền vào
   try {
-    const questions = await pythonService.generateQuizFromText(content, defaultQuestions)
-    // Python script returns array directly, wrap it
-    return Array.isArray(questions) ? { questions } : questions
+    const questions = await pythonService.generateQuizFromText(payloadContext, defaultQuestions)
+    return decoratedQuestions(questions)
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
     
@@ -242,7 +360,8 @@ exports.generateFromFile = async (file, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        return await callQAGSpace(content, defaultQuestions)
+        console.log('[QAG] HF fallback (file) - contexts', { contextsCount: contexts.length, sample: fallbackContexts[0]?.slice(0, 200) })
+        return decoratedQuestions((await callQAGSpace(payloadContext, defaultQuestions)).questions || [])
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
         // Continue to simple fallback
@@ -255,7 +374,7 @@ exports.generateFromFile = async (file, numQuestions) => {
       const simpleQuiz = generateSimpleQuiz(content, defaultQuestions)
       if (simpleQuiz.questions && simpleQuiz.questions.length > 0) {
         console.log(`Generated ${simpleQuiz.questions.length} questions using simple fallback`)
-        return simpleQuiz
+        return decoratedQuestions(simpleQuiz.questions)
       }
     } catch (simpleError) {
       console.error('Simple fallback also failed:', simpleError.message)

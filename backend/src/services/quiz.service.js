@@ -1,6 +1,16 @@
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 
+// Backwards compatibility: older Prisma clients may not have the citation field yet
+const QUESTION_HAS_CITATION = (() => {
+    try {
+        const fields = prisma?._dmmf?.modelMap?.Question?.fields || []
+        return fields.some(f => f.name === 'citation')
+    } catch (e) {
+        return false
+    }
+})()
+
 module.exports = {
     /**
      * Get quiz with questions and answers
@@ -18,6 +28,7 @@ module.exports = {
                             answers: true
                         }
                     },
+                    contexts: true,
                     user: {
                         select: {
                             id: true,
@@ -40,6 +51,7 @@ module.exports = {
                                 answers: true
                             }
                         },
+                        contexts: true,
                         user: {
                             select: {
                                 id: true,
@@ -73,7 +85,8 @@ module.exports = {
                 question: q.content,
                 options: options,
                 correct: q.correct || '', // Ensure correct is never null
-                correctIndex: correctIndex
+                correctIndex: correctIndex,
+                citation: q.citation || null
             };
         })
     },
@@ -87,10 +100,17 @@ module.exports = {
                 title,
                 userId,
                 status: 1, // Set as active by default
+                contexts: {
+                    create: (questions[0]?.contexts || []).map((ctx, idx) => ({
+                        content: ctx,
+                        position: idx
+                    }))
+                },
                 questions: {
                     create: questions.map(q => ({
                         content: q.question,
                         correct: q.answer,
+                        ...(QUESTION_HAS_CITATION ? { citation: q.citation || null } : {}),
                         answers: {
                             create: q.choices.map((choice, idx) => ({
                                 option: choice,
@@ -105,7 +125,8 @@ module.exports = {
                     include: {
                         answers: true
                     }
-                }
+                },
+                contexts: true
             }
         })
     },
@@ -116,7 +137,8 @@ module.exports = {
     async updateQuiz(quizId, userId, title, questions) {
         // First verify ownership
         const existingQuiz = await prisma.quiz.findUnique({
-            where: { id: parseInt(quizId) }
+            where: { id: parseInt(quizId) },
+            include: { contexts: true }
         })
 
         if (!existingQuiz) {
@@ -147,15 +169,27 @@ module.exports = {
             where: { quizId: parseInt(quizId) }
         })
 
+        // Delete existing contexts
+        await prisma.quizContext.deleteMany({
+            where: { quizId: parseInt(quizId) }
+        })
+
         // Update quiz title and create new questions
         return await prisma.quiz.update({
             where: { id: parseInt(quizId) },
             data: {
                 title,
+                contexts: {
+                    create: (questions[0]?.contexts || []).map((ctx, idx) => ({
+                        content: ctx,
+                        position: idx
+                    }))
+                },
                 questions: {
                     create: questions.map(q => ({
                         content: q.question,
                         correct: q.answer,
+                        ...(QUESTION_HAS_CITATION ? { citation: q.citation || null } : {}),
                         answers: {
                             create: q.choices.map((choice, idx) => ({
                                 option: choice,
@@ -170,7 +204,8 @@ module.exports = {
                     include: {
                         answers: true
                     }
-                }
+                },
+                contexts: true
             }
         })
     },

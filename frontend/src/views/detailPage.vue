@@ -75,7 +75,8 @@ async function viewAttempt(attemptId) {
           question: q.content || q.question,
           options: options,
           correct: q.correct,
-          correctIndex: correctIndex >= 0 ? correctIndex : -1
+          correctIndex: correctIndex >= 0 ? correctIndex : -1,
+          citation: q.citation || q.context || null
         }
       })
     }
@@ -190,7 +191,8 @@ async function viewAttempt(attemptId) {
         isCorrect: isCorrect,
         isShortAnswer: true,
         userAnswer: userAnswer,
-        correctAnswer: correctAnswer
+        correctAnswer: correctAnswer,
+        citation: q.citation || q.context || null
       }
     }
     
@@ -230,7 +232,8 @@ async function viewAttempt(attemptId) {
       correctIndex: correctIndex,
       selectedIndex: selectedIndex,
       isCorrect: isCorrect,
-      isShortAnswer: false
+      isShortAnswer: false,
+      citation: q.citation || q.context || null
     }
     
     console.log(`Question ${index + 1}:`, {
