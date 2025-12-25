@@ -2,6 +2,47 @@ const fs = require('fs').promises
 const path = require('path')
 const pythonService = require('./python.service')
 
+function preprocessText(rawText = '') {
+  if (!rawText || typeof rawText !== 'string') return []
+
+  // Normalize whitespace and remove control characters
+  const cleaned = rawText
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (!cleaned) return []
+
+  const words = cleaned.split(/\s+/)
+  const chunks = []
+  let current = []
+
+  const minWords = 100
+  const maxWords = 250
+
+  for (let i = 0; i < words.length; i++) {
+    current.push(words[i])
+
+    const isSentenceBoundary = /[.!?]$/.test(words[i])
+    const reachedMin = current.length >= minWords
+    const reachedMax = current.length >= maxWords
+
+    if (reachedMax || (reachedMin && isSentenceBoundary)) {
+      chunks.push(current.join(' '))
+      current = []
+    }
+  }
+
+  if (current.length > 0) {
+    // Add the remaining words as the final chunk
+    chunks.push(current.join(' '))
+  }
+
+  return chunks
+}
+
 function attachCitations(questions = [], fallbackText = '') {
   return questions.map((q) => {
     const citation =
@@ -155,10 +196,14 @@ async function callQAGSpace(text, maxQuestions = 5) {
 exports.generateFromText = async (text, numQuestions) => {
   // Use Python script to generate quiz
   try {
-    const questions = await pythonService.generateQuizFromText(text, numQuestions || 5)
+    const contexts = preprocessText(text)
+    const payload = contexts.length ? contexts.join('\n\n') : text
+    const fallbackContext = payload || text
+
+    const questions = await pythonService.generateQuizFromText(payload, numQuestions || 5)
     // Python script returns array directly, wrap it
     const wrapped = Array.isArray(questions) ? { questions } : questions
-    wrapped.questions = attachCitations(wrapped.questions || [], text)
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContext)
     return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
@@ -167,8 +212,12 @@ exports.generateFromText = async (text, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        const res = await callQAGSpace(text, numQuestions || 5)
-        res.questions = attachCitations(res.questions || [], text)
+        const contexts = preprocessText(text)
+        const payload = contexts.length ? contexts.join('\n\n') : text
+        const fallbackContext = payload || text
+
+        const res = await callQAGSpace(payload, numQuestions || 5)
+        res.questions = attachCitations(res.questions || [], fallbackContext)
         return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
@@ -256,8 +305,10 @@ exports.generateFromFile = async (file, numQuestions) => {
   try {
     const questions = await pythonService.generateQuizFromText(content, defaultQuestions)
     // Python script returns array directly, wrap it
+    const contexts = preprocessText(content)
+    const payloadContext = contexts.length ? contexts.join('\n\n') : content
     const wrapped = Array.isArray(questions) ? { questions } : questions
-    wrapped.questions = attachCitations(wrapped.questions || [], content)
+    wrapped.questions = attachCitations(wrapped.questions || [], payloadContext)
     return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
@@ -266,8 +317,10 @@ exports.generateFromFile = async (file, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        const res = await callQAGSpace(content, defaultQuestions)
-        res.questions = attachCitations(res.questions || [], content)
+        const contexts = preprocessText(content)
+        const payload = contexts.length ? contexts.join('\n\n') : content
+        const res = await callQAGSpace(payload, defaultQuestions)
+        res.questions = attachCitations(res.questions || [], payload)
         return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
