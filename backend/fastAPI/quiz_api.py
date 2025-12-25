@@ -35,6 +35,7 @@ _qag_tokenizer = None
 # Distractor model (BASE)
 DIST_MODEL_NAME = os.environ.get("DIST_MODEL_NAME", "google/flan-t5-large")
 DISTRACTOR_ENABLED = os.environ.get("ENABLE_DISTRACTORS", "1") != "0"
+SERIALIZE_MODELS = os.environ.get("SERIALIZE_MODELS", "1") != "0"
 _dist_tokenizer = None
 _dist_model = None
 
@@ -134,6 +135,24 @@ def _load_dist_model():
     return _dist_model, _dist_tokenizer
 
 
+def _unload_qag_model():
+    """Free QAG model weights when serializing model usage on constrained GPUs."""
+    global _qag_model
+    if _qag_model is not None and device == "cuda" and SERIALIZE_MODELS:
+        del _qag_model
+        _qag_model = None
+        torch.cuda.empty_cache()
+
+
+def _unload_dist_model():
+    """Free distractor model weights when serializing model usage on constrained GPUs."""
+    global _dist_model
+    if _dist_model is not None and device == "cuda" and SERIALIZE_MODELS:
+        del _dist_model
+        _dist_model = None
+        torch.cuda.empty_cache()
+
+
 QUESTION_TYPES = ["short", "cloze", "mcq"]
 
 def generate_questions_from_context(
@@ -175,12 +194,16 @@ def generate_questions_from_context(
 
         # MCQ handling
         if item["type"] == "mcq":
+            # free QAG weights before loading distractor model on tight GPUs
+            _unload_qag_model()
             item["distractors"] = generate_distractors(
                 context,
                 item["question"],
                 ans,
                 k=3
             )
+            # reload QAG model lazily on next question if needed
+            _unload_dist_model()
 
         questions.append(item)
         used_answers.add(ans.lower())
