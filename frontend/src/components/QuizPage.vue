@@ -1,5 +1,5 @@
 <template>
-  <div class="quiz-container d-flex flex-wrap justify-content-between p-4">
+  <div class="quiz-container p-4">
     <!-- Loading state -->
     <div v-if="loading" class="w-100 text-center py-5">
       <div class="spinner-border text-primary" role="status">
@@ -19,153 +19,173 @@
 
     <!-- Quiz content -->
     <template v-else-if="questions.length > 0">
-      <div class="row g-4 align-items-stretch min-vh-50">
+      <div class="row g-4 align-items-start">
         <!-- Câu hỏi -->
-        <div class="quiz-main col-12 col-md-9 h-100 d-flex flex-column mx-4">
-          <div class="d-flex justify-content-between align-items-center mb-4">
-            <h3 class="fw-bold mb-0">
-              {{ currentQuestion.question }}
-            </h3>
-            <!-- <span class="badge bg-primary">Question {{ currentIndex + 1 }}/{{ questions.length }}</span> -->
-          </div>
-  
-          <!-- Multiple Choice Options -->
-          <div v-if="!isShortAnswer && currentQuestion.options && currentQuestion.options.length > 0">
-            <div v-for="(option, idx) in currentQuestion.options" :key="idx" class="mb-3">
-              <button
-                class="option-btn w-100 text-start py-3 px-4 rounded border"
-                :class="{
-                  'selected': selectedOption === option,
-                  'correct': submitted && option === currentQuestion.correct && selectedOption === option,
-                  'incorrect': submitted && selectedOption === option && option !== currentQuestion.correct
-                }"
-                @click="selectOption(option)"
-                :disabled="submitted"
-              >
-                <strong>{{ String.fromCharCode(65 + idx) }}.</strong> {{ option }}
-              </button>
+        <div class="quiz-main col-12 col-xl-9">
+          <div class="quiz-card shadow-sm">
+            <div class="quiz-header d-flex flex-wrap align-items-start justify-content-between gap-3">
+              <div class="question-heading">
+                <p class="text-muted fw-semibold small mb-1">
+                  Question {{ currentIndex + 1 }} of {{ questions.length }}
+                </p>
+                <h3 class="fw-bold mb-0 question-title text-balance">
+                  {{ currentQuestion.question }}
+                </h3>
+              </div>
+              <span class="badge rounded-pill bg-light text-dark border">
+                {{ isShortAnswer ? 'Short answer' : 'Multiple choice' }}
+              </span>
             </div>
-          </div>
 
-          <!-- Short Answer Input -->
-          <div v-else-if="isShortAnswer" class="mb-3">
-            <textarea
-              v-model="shortAnswerText"
-              class="form-control"
-              rows="4"
-              placeholder="Enter your answer here..."
-              :disabled="submitted"
-            ></textarea>
-            <div v-if="quizSubmitted && currentQuestion.userAnswer" class="mt-3 p-3 rounded" 
-                 :class="currentQuestion.isCorrect ? 'bg-light-success border border-success' : 'bg-light-danger border border-danger'">
-              <div class="d-flex justify-content-between align-items-start mb-2">
-                <strong>Your answer:</strong>
-                <span v-if="currentQuestion.isCorrect === true" class="text-success">✓ Correct</span>
-                <span v-else class="text-danger">✗ Incorrect</span>
+            <div class="quiz-body">
+              <!-- Multiple Choice Options -->
+              <div v-if="!isShortAnswer && currentQuestion.options && currentQuestion.options.length > 0" class="option-stack">
+                <div v-for="(option, idx) in currentQuestion.options" :key="idx">
+                  <button
+                    class="option-btn w-100 text-start rounded border"
+                    :class="{
+                      'selected': selectedOption === option,
+                      'correct': submitted && option === currentQuestion.correct && selectedOption === option,
+                      'incorrect': submitted && selectedOption === option && option !== currentQuestion.correct
+                    }"
+                    @click="selectOption(option)"
+                    :disabled="submitted"
+                  >
+                    <strong class="me-2">{{ String.fromCharCode(65 + idx) }}.</strong>
+                    <span class="option-text">{{ option }}</span>
+                  </button>
+                </div>
               </div>
-              <p class="mb-1">{{ currentQuestion.userAnswer }}</p>
-              <div v-if="currentQuestion.isCorrect === false && currentQuestion.correct" class="mt-2">
-                <strong>Correct answer:</strong>
-                <p class="mb-0">{{ currentQuestion.correct }}</p>
+
+              <!-- Short Answer Input -->
+              <div v-else-if="isShortAnswer" class="short-answer-card">
+                <label class="form-label text-muted small mb-2">Your answer</label>
+                <textarea
+                  v-model="shortAnswerText"
+                  class="form-control"
+                  rows="4"
+                  placeholder="Enter your answer here..."
+                  :disabled="submitted"
+                ></textarea>
+                <div v-if="quizSubmitted && currentQuestion.userAnswer" class="mt-3 p-3 rounded" 
+                     :class="currentQuestion.isCorrect ? 'bg-light-success border border-success' : 'bg-light-danger border border-danger'">
+                  <div class="d-flex justify-content-between align-items-start mb-2">
+                    <strong>Your answer:</strong>
+                    <span v-if="currentQuestion.isCorrect === true" class="text-success">✓ Correct</span>
+                    <span v-else class="text-danger">✗ Incorrect</span>
+                  </div>
+                  <p class="mb-1">{{ currentQuestion.userAnswer }}</p>
+                  <div v-if="currentQuestion.isCorrect === false && currentQuestion.correct" class="mt-2">
+                    <strong>Correct answer:</strong>
+                    <p class="mb-0">{{ currentQuestion.correct }}</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-  
-          <div class="d-flex gap-2 mt-3">
-            <button
-              v-if="currentIndex > 0"
-              class="btn btn-outline-secondary rounded-pill px-4 py-2"
-              @click="goTo(currentIndex - 1)"
-            >
-              ← Previous question
-            </button>
-            <button
-              class="btn btn-success rounded-pill px-4 py-2"
-              @click="submitAnswer"
-              :disabled="submitted || (!selectedOption && !shortAnswerText.trim())"
-            >
-              {{ submitted ? 'Submitted' : 'Submit answer' }}
-            </button>
-            <button
-              v-if="currentIndex < questions.length - 1"
-              class="btn btn-primary rounded-pill px-4 py-2"
-              @click="goTo(currentIndex + 1)"
-              :disabled="!submitted"
-            >
-              Next question →
-            </button>
-          </div>
-  
-          <!-- Submit all button -->
-          <div v-if="allAnswered && !quizSubmitted" class="mt-4">
-            <button
-              class="btn btn-primary btn-lg w-100 rounded-pill py-3"
-              @click="submitAllAnswers"
-              :disabled="submitting"
-            >
-              {{ submitting ? 'Đang nộp...' : 'Nộp toàn bộ bài làm' }}
-            </button>
-          </div>
-  
-          <!-- Results -->
-          <div v-if="quizSubmitted && result" class="mt-4 p-4 border rounded">
-            <h4 class="fw-bold mb-3">Result</h4>
-            <p class="fs-5">
-              Score: <strong>{{ result.score }}%</strong>
-            </p>
-            <p>
-              Correct answers: <strong>{{ result.correctCount }}/{{ result.totalQuestions }}</strong>
-            </p>
-            
-            <!-- Action buttons after quiz completion -->
-            <div class="d-flex gap-2 mt-4">
-              <button
-                class="btn btn-outline-secondary flex-grow-1"
-                @click="goToDashboard"
-              >
-                Back to Dashboard
-              </button>
-              <button
-                class="btn btn-primary flex-grow-1"
-                @click="goToDetail"
-              >
-                Detail
-              </button>
+
+              <div class="quiz-actions">
+                <div class="d-flex flex-wrap gap-2">
+                  <button
+                    v-if="currentIndex > 0"
+                    class="btn btn-outline-secondary rounded-pill px-4 py-2"
+                    @click="goTo(currentIndex - 1)"
+                  >
+                    ← Previous question
+                  </button>
+                  <button
+                    class="btn btn-success rounded-pill px-4 py-2"
+                    @click="submitAnswer"
+                    :disabled="submitted || (!selectedOption && !shortAnswerText.trim())"
+                  >
+                    {{ submitted ? 'Submitted' : 'Submit answer' }}
+                  </button>
+                  <button
+                    v-if="currentIndex < questions.length - 1"
+                    class="btn btn-primary rounded-pill px-4 py-2"
+                    @click="goTo(currentIndex + 1)"
+                    :disabled="!submitted"
+                  >
+                    Next question →
+                  </button>
+                </div>
+
+                <!-- Submit all button -->
+                <div v-if="allAnswered && !quizSubmitted" class="mt-3">
+                  <button
+                    class="btn btn-primary btn-lg w-100 rounded-pill py-3"
+                    @click="submitAllAnswers"
+                    :disabled="submitting"
+                  >
+                    {{ submitting ? 'Đang nộp...' : 'Nộp toàn bộ bài làm' }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Results -->
+              <div v-if="quizSubmitted && result" class="result-card">
+                <div>
+                  <p class="text-muted small mb-1">Quiz completed</p>
+                  <h4 class="fw-bold mb-3">Result</h4>
+                  <p class="fs-5 mb-1">
+                    Score: <strong>{{ result.score }}%</strong>
+                  </p>
+                  <p class="mb-3">
+                    Correct answers: <strong>{{ result.correctCount }}/{{ result.totalQuestions }}</strong>
+                  </p>
+                </div>
+                
+                <!-- Action buttons after quiz completion -->
+                <div class="d-flex gap-2">
+                  <button
+                    class="btn btn-outline-secondary flex-grow-1"
+                    @click="goToDashboard"
+                  >
+                    Back to Dashboard
+                  </button>
+                  <button
+                    class="btn btn-primary flex-grow-1"
+                    @click="goToDetail"
+                  >
+                    Detail
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-  
+
         <!-- Sidebar -->
-        <div class="quiz-sidebar col-12 col-md-2">
-          <div class="timer-box text-center mb-4">
-            <div class="timer-circle mb-2">
-              <div class="circle">∞</div>
+        <div class="quiz-sidebar col-12 col-xl-3">
+          <div class="sidebar-card shadow-sm">
+            <div class="timer-box text-center">
+              <div class="timer-circle mb-2">
+                <div class="circle">∞</div>
+              </div>
+              <div class="small text-muted">Timer: <strong>Unlimited</strong></div>
             </div>
-            <div class="small text-muted">Timer: <strong>Unlimited</strong></div>
-          </div>
   
-          <div class="question-list border rounded p-3">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <h6 class="fw-bold mb-0">Quiz Questions List</h6>
-              <span class="text-muted">⌃</span>
-            </div>
-            <div class="question-items">
-              <div
-                v-for="(q, index) in questions"
-                :key="index"
-                class="question-item mb-2 rounded p-2"
-                :class="getQuestionItemClass(q, index)"
-                @click="goTo(index)"
-              >
-                <div class="d-flex justify-content-between align-items-center">
-                  <span class="question-number">Quiz question {{ index + 1 }}</span>
-                  <span v-if="quizSubmitted && q.userAnswer" class="status-icon">
-                    <span v-if="q.isCorrect" class="text-success">✓</span>
-                    <span v-else class="text-danger">✗</span>
-                  </span>
-                  <span v-else-if="q.userAnswer && !quizSubmitted" class="status-icon">
-                    <span class="text-primary">○</span>
-                  </span>
+            <div class="question-list">
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-bold mb-0">Quiz Questions List</h6>
+                <span class="text-muted">⌃</span>
+              </div>
+              <div class="question-items">
+                <div
+                  v-for="(q, index) in questions"
+                  :key="index"
+                  class="question-item mb-2 rounded p-2"
+                  :class="getQuestionItemClass(q, index)"
+                  @click="goTo(index)"
+                >
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="question-number">Quiz question {{ index + 1 }}</span>
+                    <span v-if="quizSubmitted && q.userAnswer" class="status-icon">
+                      <span v-if="q.isCorrect" class="text-success">✓</span>
+                      <span v-else class="text-danger">✗</span>
+                    </span>
+                    <span v-else-if="q.userAnswer && !quizSubmitted" class="status-icon">
+                      <span class="text-primary">○</span>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -397,22 +417,94 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.quiz-container {
+  max-width: 1300px;
+  margin: 0 auto;
+}
+
+.quiz-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.quiz-header {
+  border-bottom: 1px solid #eef2f7;
+  padding-bottom: 12px;
+}
+
+.question-heading {
+  flex: 1;
+  min-height: 86px;
+}
+
+.question-title {
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@supports (text-wrap: balance) {
+  .question-title {
+    text-wrap: balance;
+  }
+}
+
+.quiz-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 380px;
+}
+
+.option-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .option-btn {
   background-color: #f8f9fa;
-  border-color: #ccc;
+  border-color: #d8dde6;
   transition: 0.2s;
+  padding: 16px 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 64px;
+  line-height: 1.5;
 }
+
 .option-btn:hover:not(:disabled) {
-  background-color: #e9ecef;
+  background-color: #eef2f8;
 }
+
+.option-btn:disabled {
+  cursor: not-allowed;
+}
+
+.option-text {
+  flex: 1;
+}
+
 .selected {
   border: 2px solid #0d6efd;
   background-color: #e7f1ff;
 }
+
 .correct {
   background-color: #d1e7dd !important;
   border-color: #198754 !important;
 }
+
 .incorrect {
   background-color: #f8d7da !important;
   border-color: #dc3545 !important;
@@ -424,6 +516,48 @@ onMounted(() => {
 
 .bg-light-danger {
   background-color: #f8d7da;
+}
+
+.short-answer-card {
+  background: #f8f9fb;
+  border: 1px solid #e5e8ee;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.quiz-actions {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid #eef2f7;
+}
+
+.result-card {
+  border: 1px solid #e5e8ee;
+  border-radius: 12px;
+  padding: 16px;
+  background-color: #f9fbff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  position: sticky;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.timer-box {
+  border: 1px solid #e5e8ee;
+  border-radius: 12px;
+  padding: 16px;
+  background-color: #f8f9fb;
 }
 
 .timer-box .circle {
@@ -442,9 +576,11 @@ onMounted(() => {
 .quiz-link {
   cursor: pointer;
 }
+
 .quiz-link:hover {
   text-decoration: underline;
 }
+
 .active .quiz-link {
   font-weight: bold;
   color: #0d6efd !important;
@@ -456,8 +592,9 @@ onMounted(() => {
 }
 
 .question-items {
-  max-height: 500px;
+  max-height: 520px;
   overflow-y: auto;
+  padding-right: 4px;
 }
 
 .question-item {
