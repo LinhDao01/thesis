@@ -73,7 +73,8 @@ module.exports = {
                 question: q.content,
                 options: options,
                 correct: q.correct || '', // Ensure correct is never null
-                correctIndex: correctIndex
+                correctIndex: correctIndex,
+                citation: q.citation || null
             };
         })
     },
@@ -91,6 +92,7 @@ module.exports = {
                     create: questions.map(q => ({
                         content: q.question,
                         correct: q.answer,
+                        citation: q.citation || null,
                         answers: {
                             create: q.choices.map((choice, idx) => ({
                                 option: choice,
@@ -156,6 +158,7 @@ module.exports = {
                     create: questions.map(q => ({
                         content: q.question,
                         correct: q.answer,
+                        citation: q.citation || null,
                         answers: {
                             create: q.choices.map((choice, idx) => ({
                                 option: choice,

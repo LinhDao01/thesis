@@ -2,6 +2,22 @@ const fs = require('fs').promises
 const path = require('path')
 const pythonService = require('./python.service')
 
+function attachCitations(questions = [], fallbackText = '') {
+  return questions.map((q) => {
+    const citation =
+      q.citation ||
+      q.context ||
+      (typeof q.source === 'string' ? q.source : '') ||
+      fallbackText ||
+      null
+
+    return {
+      ...q,
+      citation
+    }
+  })
+}
+
 // Simple fallback quiz generator (very basic)
 function generateSimpleQuiz(text, numQuestions = 5) {
   const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 20)
@@ -39,6 +55,7 @@ function generateSimpleQuiz(text, numQuestions = 5) {
       type: 'mcq',
       question: question,
       answer: keyWord,
+      citation: sentence,
       choices: choices,
       answer_index: correctIndex >= 0 ? correctIndex : 0
     })
@@ -140,7 +157,9 @@ exports.generateFromText = async (text, numQuestions) => {
   try {
     const questions = await pythonService.generateQuizFromText(text, numQuestions || 5)
     // Python script returns array directly, wrap it
-    return Array.isArray(questions) ? { questions } : questions
+    const wrapped = Array.isArray(questions) ? { questions } : questions
+    wrapped.questions = attachCitations(wrapped.questions || [], text)
+    return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
     
@@ -148,7 +167,9 @@ exports.generateFromText = async (text, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        return await callQAGSpace(text, numQuestions || 5)
+        const res = await callQAGSpace(text, numQuestions || 5)
+        res.questions = attachCitations(res.questions || [], text)
+        return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
         // Continue to simple fallback
@@ -161,6 +182,7 @@ exports.generateFromText = async (text, numQuestions) => {
       const simpleQuiz = generateSimpleQuiz(text, numQuestions || 5)
       if (simpleQuiz.questions && simpleQuiz.questions.length > 0) {
         console.log(`Generated ${simpleQuiz.questions.length} questions using simple fallback`)
+        simpleQuiz.questions = attachCitations(simpleQuiz.questions, text)
         return simpleQuiz
       }
     } catch (simpleError) {
@@ -234,7 +256,9 @@ exports.generateFromFile = async (file, numQuestions) => {
   try {
     const questions = await pythonService.generateQuizFromText(content, defaultQuestions)
     // Python script returns array directly, wrap it
-    return Array.isArray(questions) ? { questions } : questions
+    const wrapped = Array.isArray(questions) ? { questions } : questions
+    wrapped.questions = attachCitations(wrapped.questions || [], content)
+    return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
     
@@ -242,7 +266,9 @@ exports.generateFromFile = async (file, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        return await callQAGSpace(content, defaultQuestions)
+        const res = await callQAGSpace(content, defaultQuestions)
+        res.questions = attachCitations(res.questions || [], content)
+        return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
         // Continue to simple fallback
