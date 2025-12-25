@@ -38,6 +38,7 @@ model Question {
   id        Int      @id @default(autoincrement())
   content   String   @db.Text
   correct   String   @db.Text
+  citation  String?  @db.Text
   quiz      Quiz     @relation(fields: [quizId], references: [id])
   quizId    Int
   answers   Answer[]

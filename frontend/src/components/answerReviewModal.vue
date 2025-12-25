@@ -55,6 +55,13 @@
             <div v-else class="text-muted">
               No answer data available
             </div>
+
+            <div v-if="q.citation" class="mt-3">
+              <label class="small text-muted mb-1 d-block">Question citation:</label>
+              <div class="rounded p-3 bg-light border border-secondary-subtle">
+                {{ q.citation }}
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -2,6 +2,73 @@ const fs = require('fs').promises
 const path = require('path')
 const pythonService = require('./python.service')
 
+function preprocessText(rawText = '') {
+  if (!rawText || typeof rawText !== 'string') return []
+
+  // Normalize whitespace and remove control characters
+  const cleaned = rawText
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (!cleaned) return []
+
+  const words = cleaned.split(/\s+/)
+  const chunks = []
+  let current = []
+
+  const minWords = 100
+  const maxWords = 250
+
+  for (let i = 0; i < words.length; i++) {
+    current.push(words[i])
+
+    const isSentenceBoundary = /[.!?]$/.test(words[i])
+    const reachedMin = current.length >= minWords
+    const reachedMax = current.length >= maxWords
+
+    if (reachedMax || (reachedMin && isSentenceBoundary)) {
+      chunks.push(current.join(' '))
+      current = []
+    }
+  }
+
+  if (current.length > 0) {
+    // Add the remaining words as the final chunk
+    chunks.push(current.join(' '))
+  }
+
+  return chunks
+}
+
+function attachCitations(questions = [], fallback) {
+  const isArrayFallback = Array.isArray(fallback) && fallback.length > 0
+  const fallbackText = !isArrayFallback && typeof fallback === 'string' ? fallback : null
+
+  const getFallbackCitation = (index) => {
+    if (isArrayFallback) {
+      return fallback[index % fallback.length]
+    }
+    return fallbackText
+  }
+
+  return questions.map((q, idx) => {
+    const citation =
+      q.citation ||
+      q.context ||
+      (typeof q.source === 'string' ? q.source : '') ||
+      getFallbackCitation(idx) ||
+      null
+
+    return {
+      ...q,
+      citation
+    }
+  })
+}
+
 // Simple fallback quiz generator (very basic)
 function generateSimpleQuiz(text, numQuestions = 5) {
   const sentences = text.split(/[.!?]\s+/).filter(s => s.trim().length > 20)
@@ -39,6 +106,7 @@ function generateSimpleQuiz(text, numQuestions = 5) {
       type: 'mcq',
       question: question,
       answer: keyWord,
+      citation: sentence,
       choices: choices,
       answer_index: correctIndex >= 0 ? correctIndex : 0
     })
@@ -138,9 +206,15 @@ async function callQAGSpace(text, maxQuestions = 5) {
 exports.generateFromText = async (text, numQuestions) => {
   // Use Python script to generate quiz
   try {
-    const questions = await pythonService.generateQuizFromText(text, numQuestions || 5)
+    const contexts = preprocessText(text)
+    const payload = contexts.length ? contexts.join('\n\n') : text
+    const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+
+    const questions = await pythonService.generateQuizFromText(payload, numQuestions || 5)
     // Python script returns array directly, wrap it
-    return Array.isArray(questions) ? { questions } : questions
+    const wrapped = Array.isArray(questions) ? { questions } : questions
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
     
@@ -148,7 +222,13 @@ exports.generateFromText = async (text, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        return await callQAGSpace(text, numQuestions || 5)
+        const contexts = preprocessText(text)
+        const payload = contexts.length ? contexts.join('\n\n') : text
+        const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+
+        const res = await callQAGSpace(payload, numQuestions || 5)
+        res.questions = attachCitations(res.questions || [], fallbackContexts)
+        return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
         // Continue to simple fallback
@@ -161,6 +241,7 @@ exports.generateFromText = async (text, numQuestions) => {
       const simpleQuiz = generateSimpleQuiz(text, numQuestions || 5)
       if (simpleQuiz.questions && simpleQuiz.questions.length > 0) {
         console.log(`Generated ${simpleQuiz.questions.length} questions using simple fallback`)
+        simpleQuiz.questions = attachCitations(simpleQuiz.questions, text)
         return simpleQuiz
       }
     } catch (simpleError) {
@@ -234,7 +315,12 @@ exports.generateFromFile = async (file, numQuestions) => {
   try {
     const questions = await pythonService.generateQuizFromText(content, defaultQuestions)
     // Python script returns array directly, wrap it
-    return Array.isArray(questions) ? { questions } : questions
+    const contexts = preprocessText(content)
+    const payloadContext = contexts.length ? contexts.join('\n\n') : content
+    const fallbackContexts = contexts.length ? contexts : (payloadContext ? [payloadContext] : [])
+    const wrapped = Array.isArray(questions) ? { questions } : questions
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
     
@@ -242,7 +328,12 @@ exports.generateFromFile = async (file, numQuestions) => {
     if (process.env.QAG_API_BASE) {
       try {
         console.log('Trying Hugging Face Space fallback...')
-        return await callQAGSpace(content, defaultQuestions)
+        const contexts = preprocessText(content)
+        const payload = contexts.length ? contexts.join('\n\n') : content
+        const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+        const res = await callQAGSpace(payload, defaultQuestions)
+        res.questions = attachCitations(res.questions || [], fallbackContexts)
+        return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
         // Continue to simple fallback

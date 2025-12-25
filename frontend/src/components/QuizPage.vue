@@ -120,6 +120,30 @@
                 </div>
               </div>
 
+              <!-- Per-question feedback for multiple choice -->
+              <div
+                v-if="quizSubmitted && !isShortAnswer && currentQuestion.userAnswer"
+                class="mt-3 p-3 rounded feedback-card"
+                :class="currentQuestion.isCorrect ? 'border border-success bg-light-success' : 'border border-danger bg-light-danger'"
+              >
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                  <strong>Answer result</strong>
+                  <span :class="currentQuestion.isCorrect ? 'text-success' : 'text-danger'">
+                    {{ currentQuestion.isCorrect ? '✓ Correct' : '✗ Incorrect' }}
+                  </span>
+                </div>
+                <p class="mb-1"><strong>Your answer:</strong> {{ formatOptionLabel(currentQuestion.userAnswer, currentQuestion.options) }}</p>
+                <p class="mb-0"><strong>Correct answer:</strong> {{ formatOptionLabel(currentQuestion.correct, currentQuestion.options) }}</p>
+              </div>
+
+              <!-- Citation -->
+              <div v-if="currentQuestion.userAnswer && currentQuestion.citation" class="citation-box mt-3">
+                <small class="text-muted d-block mb-1">Question citation</small>
+                <div class="p-3 rounded border bg-white">
+                  {{ currentQuestion.citation }}
+                </div>
+              </div>
+
               <!-- Results -->
               <div v-if="quizSubmitted && result" class="result-card">
                 <div>
@@ -253,6 +277,7 @@ async function loadQuiz() {
         options: q.options,
         correct: q.correct,
         correctIndex: q.correctIndex,
+        citation: q.citation,
         userAnswer: null
       })))
     } else {
@@ -405,6 +430,24 @@ function goToDashboard() {
 
 function goToDetail() {
   router.push(`/quiz/${quizId}/detail`)
+}
+
+function formatOptionLabel(value, options) {
+  if (!options || options.length === 0) {
+    return value || '(No answer)'
+  }
+
+  const index = options.findIndex(opt => {
+    const optStr = String(opt || '').trim().toLowerCase()
+    const valueStr = String(value || '').trim().toLowerCase()
+    return optStr === valueStr
+  })
+
+  if (index >= 0) {
+    return `${String.fromCharCode(65 + index)}. ${options[index]}`
+  }
+
+  return value || '(No answer)'
 }
 
 onMounted(() => {
@@ -648,6 +691,15 @@ onMounted(() => {
 .quiz-main,
 .quiz-sidebar {
   min-height: 400px;
+}
+
+.feedback-card {
+  background-color: #f9fbff;
+}
+
+.citation-box {
+  background: #f8f9fb;
+  border: 1px dashed #c9d6ea;
 }
 
 </style>

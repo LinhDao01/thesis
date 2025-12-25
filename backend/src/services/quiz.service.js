@@ -1,6 +1,16 @@
 const { PrismaClient } = require('@prisma/client')
 const prisma = new PrismaClient()
 
+// Backwards compatibility: older Prisma clients may not have the citation field yet
+const QUESTION_HAS_CITATION = (() => {
+    try {
+        const fields = prisma?._dmmf?.modelMap?.Question?.fields || []
+        return fields.some(f => f.name === 'citation')
+    } catch (e) {
+        return false
+    }
+})()
+
 module.exports = {
     /**
      * Get quiz with questions and answers
@@ -73,7 +83,8 @@ module.exports = {
                 question: q.content,
                 options: options,
                 correct: q.correct || '', // Ensure correct is never null
-                correctIndex: correctIndex
+                correctIndex: correctIndex,
+                citation: q.citation || null
             };
         })
     },
@@ -91,6 +102,7 @@ module.exports = {
                     create: questions.map(q => ({
                         content: q.question,
                         correct: q.answer,
+                        ...(QUESTION_HAS_CITATION ? { citation: q.citation || null } : {}),
                         answers: {
                             create: q.choices.map((choice, idx) => ({
                                 option: choice,
@@ -156,6 +168,7 @@ module.exports = {
                     create: questions.map(q => ({
                         content: q.question,
                         correct: q.answer,
+                        ...(QUESTION_HAS_CITATION ? { citation: q.citation || null } : {}),
                         answers: {
                             create: q.choices.map((choice, idx) => ({
                                 option: choice,
