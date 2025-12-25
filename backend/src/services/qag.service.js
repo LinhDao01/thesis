@@ -209,11 +209,18 @@ exports.generateFromText = async (text, numQuestions) => {
     const contexts = preprocessText(text)
     const payload = contexts.length ? contexts.join('\n\n') : text
     const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+    console.log('[QAG] generateFromText - contexts', { contextsCount: contexts.length, sample: contexts[0]?.slice(0, 200) })
+    console.log('[QAG] generateFromText - payload length', payload?.length || 0)
 
     const questions = await pythonService.generateQuizFromText(payload, numQuestions || 5)
     // Python script returns array directly, wrap it
     const wrapped = Array.isArray(questions) ? { questions } : questions
     wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    console.log('[QAG] generateFromText - questions with citation', wrapped.questions?.map((q, idx) => ({
+      idx,
+      hasCitation: !!q.citation,
+      citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+    })))
     return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
@@ -225,9 +232,15 @@ exports.generateFromText = async (text, numQuestions) => {
         const contexts = preprocessText(text)
         const payload = contexts.length ? contexts.join('\n\n') : text
         const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+        console.log('[QAG] HF fallback - contexts', { contextsCount: contexts.length, sample: contexts[0]?.slice(0, 200) })
 
         const res = await callQAGSpace(payload, numQuestions || 5)
         res.questions = attachCitations(res.questions || [], fallbackContexts)
+        console.log('[QAG] HF fallback - questions with citation', res.questions?.map((q, idx) => ({
+          idx,
+          hasCitation: !!q.citation,
+          citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+        })))
         return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
@@ -318,8 +331,15 @@ exports.generateFromFile = async (file, numQuestions) => {
     const contexts = preprocessText(content)
     const payloadContext = contexts.length ? contexts.join('\n\n') : content
     const fallbackContexts = contexts.length ? contexts : (payloadContext ? [payloadContext] : [])
+    console.log('[QAG] generateFromFile - contexts', { contextsCount: contexts.length, sample: contexts[0]?.slice(0, 200) })
+    console.log('[QAG] generateFromFile - payload length', payloadContext?.length || 0)
     const wrapped = Array.isArray(questions) ? { questions } : questions
     wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
+    console.log('[QAG] generateFromFile - questions with citation', wrapped.questions?.map((q, idx) => ({
+      idx,
+      hasCitation: !!q.citation,
+      citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+    })))
     return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
@@ -331,8 +351,14 @@ exports.generateFromFile = async (file, numQuestions) => {
         const contexts = preprocessText(content)
         const payload = contexts.length ? contexts.join('\n\n') : content
         const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
+        console.log('[QAG] HF fallback (file) - contexts', { contextsCount: contexts.length, sample: contexts[0]?.slice(0, 200) })
         const res = await callQAGSpace(payload, defaultQuestions)
         res.questions = attachCitations(res.questions || [], fallbackContexts)
+        console.log('[QAG] HF fallback (file) - questions with citation', res.questions?.map((q, idx) => ({
+          idx,
+          hasCitation: !!q.citation,
+          citationPreview: typeof q.citation === 'string' ? q.citation.slice(0, 200) : null
+        })))
         return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
