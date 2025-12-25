@@ -137,7 +137,7 @@
               </div>
 
               <!-- Citation -->
-              <div v-if="quizSubmitted && currentQuestion.citation" class="citation-box mt-3">
+              <div v-if="currentQuestion.userAnswer && currentQuestion.citation" class="citation-box mt-3">
                 <small class="text-muted d-block mb-1">Question citation</small>
                 <div class="p-3 rounded border bg-white">
                   {{ currentQuestion.citation }}
