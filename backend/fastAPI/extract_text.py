@@ -1,3 +1,4 @@
+import os
 import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image
@@ -92,6 +93,74 @@ def remove_semantic_duplicates(sentences, threshold=0.85):
 
     return [s for s, k in zip(sentences, keep) if k]
 
+
+def detect_heading_level(line: str) -> int:
+    text = line.strip()
+    if not text:
+        return 0
+
+    # Level 1: explicit chapter markers or roman numerals
+    if re.match(r"^(chapter|chương)\s+\d+[\.:]?\s", text, re.IGNORECASE):
+        return 1
+    if re.match(r"^[IVXLCDM]+\.\s+\S+", text):
+        return 1
+
+    # Level 1-3: numeric outlines (1, 1.1, 1.1.1)
+    numeric_match = re.match(r"^(\d+(?:\.\d+){0,2})\s+\S+", text)
+    if numeric_match:
+        return numeric_match.group(1).count(".") + 1
+
+    return 0
+
+
+def hierarchical_chunk_document(lines: list) -> list:
+    """
+    Build chunks that respect the academic layout:
+    chapter -> section -> subsection -> paragraph.
+    """
+    chunks = []
+    current_titles = []
+    buffer = []
+
+    def flush_buffer():
+        if not buffer:
+            return
+        content = " ".join(buffer).strip()
+        if content:
+            title = " / ".join(current_titles) if current_titles else "Nội dung"
+            chunks.append({"title": title, "content": content})
+        buffer.clear()
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        level = detect_heading_level(line)
+        if level:
+            flush_buffer()
+            current_titles = current_titles[: level - 1]
+            current_titles.append(line)
+            continue
+
+        buffer.append(line)
+
+    flush_buffer()
+    return chunks
+
+
+def sentence_window_chunking(sentences, window_size=5, step=None):
+    if step is None:
+        step = max(1, window_size // 2)
+
+    windows = []
+    for start in range(0, len(sentences), step):
+        window = sentences[start : start + window_size]
+        if window:
+            windows.append(" ".join(window))
+    return windows
+
+
 def build_contexts(sentences, max_words=200, min_sentences=2):
     contexts = []
     current = []
@@ -111,15 +180,12 @@ def build_contexts(sentences, max_words=200, min_sentences=2):
     if len(current) >= min_sentences:
         contexts.append(" ".join(current))
 
-    # Fallback for short/fragmented text
-    if not contexts and sentences:
-        contexts.append(" ".join(sentences))
-
     return contexts
 
 
 def is_valid_context(context: str) -> bool:
-    text = context.lower()
+    body = context.split("\n", 1)[-1]
+    text = body.lower()
 
     # 1. Remove email-heavy contexts
     if re.search(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", text):
@@ -148,9 +214,22 @@ def is_valid_context(context: str) -> bool:
 
     return True
 
-def process_pdf_to_contexts(filepath: str, max_words=200, ocr_lang="eng"):
+def save_contexts_to_file(contexts, output_path):
+    with open(output_path, "w", encoding="utf-8") as f:
+        for idx, ctx in enumerate(contexts, 1):
+            f.write(f"--- Chunk {idx} ---\n{ctx}\n\n")
+
+
+def process_pdf_to_contexts(
+    filepath: str,
+    max_words=200,
+    ocr_lang="eng",
+    window_size=5,
+    window_step=None,
+    output_path=None
+):
     doc = fitz.open(filepath)
-    all_contexts = []
+    all_lines = []
 
     for i, page in enumerate(doc):
         print(f"Processing page {i+1}/{len(doc)}...")
@@ -161,15 +240,40 @@ def process_pdf_to_contexts(filepath: str, max_words=200, ocr_lang="eng"):
         text = normalize_text(text)
         text = clean_layout(text)
 
-        sentences = reconstruct_sentences(text)
+        all_lines.extend(text.split("\n"))
+        all_lines.append("")
+
+    hierarchical_chunks = hierarchical_chunk_document(all_lines)
+    all_contexts = []
+
+    for chunk in hierarchical_chunks:
+        sentences = reconstruct_sentences(chunk["content"])
         sentences = remove_semantic_duplicates(sentences)
 
-        contexts = build_contexts(sentences, max_words=max_words)
+        windows = sentence_window_chunking(
+            sentences,
+            window_size=window_size,
+            step=window_step
+        )
 
-        #FILTER CONTEXTS
-        for ctx in contexts:
-            if is_valid_context(ctx):
-                all_contexts.append(ctx)
+        refined_windows = []
+        for window in windows:
+            refined = build_contexts(
+                reconstruct_sentences(window),
+                max_words=max_words
+            )
+            refined_windows.extend(refined or [window])
+
+        for window in refined_windows:
+            chunk_text = f"{chunk['title']}\n{window}"
+            if is_valid_context(chunk_text):
+                all_contexts.append(chunk_text)
+
+    if output_path is None:
+        base, _ = os.path.splitext(filepath)
+        output_path = f"{base}_processed.txt"
+
+    save_contexts_to_file(all_contexts, output_path)
+    print(f"Saved processed chunks to: {output_path}")
 
     return all_contexts
-
