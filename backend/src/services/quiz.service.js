@@ -28,6 +28,7 @@ module.exports = {
                             answers: true
                         }
                     },
+                    contexts: true,
                     user: {
                         select: {
                             id: true,
@@ -50,6 +51,7 @@ module.exports = {
                                 answers: true
                             }
                         },
+                        contexts: true,
                         user: {
                             select: {
                                 id: true,
@@ -98,6 +100,12 @@ module.exports = {
                 title,
                 userId,
                 status: 1, // Set as active by default
+                contexts: {
+                    create: (questions[0]?.contexts || []).map((ctx, idx) => ({
+                        content: ctx,
+                        position: idx
+                    }))
+                },
                 questions: {
                     create: questions.map(q => ({
                         content: q.question,
@@ -117,7 +125,8 @@ module.exports = {
                     include: {
                         answers: true
                     }
-                }
+                },
+                contexts: true
             }
         })
     },
@@ -128,7 +137,8 @@ module.exports = {
     async updateQuiz(quizId, userId, title, questions) {
         // First verify ownership
         const existingQuiz = await prisma.quiz.findUnique({
-            where: { id: parseInt(quizId) }
+            where: { id: parseInt(quizId) },
+            include: { contexts: true }
         })
 
         if (!existingQuiz) {
@@ -159,11 +169,22 @@ module.exports = {
             where: { quizId: parseInt(quizId) }
         })
 
+        // Delete existing contexts
+        await prisma.quizContext.deleteMany({
+            where: { quizId: parseInt(quizId) }
+        })
+
         // Update quiz title and create new questions
         return await prisma.quiz.update({
             where: { id: parseInt(quizId) },
             data: {
                 title,
+                contexts: {
+                    create: (questions[0]?.contexts || []).map((ctx, idx) => ({
+                        content: ctx,
+                        position: idx
+                    }))
+                },
                 questions: {
                     create: questions.map(q => ({
                         content: q.question,
@@ -183,7 +204,8 @@ module.exports = {
                     include: {
                         answers: true
                     }
-                }
+                },
+                contexts: true
             }
         })
     },

@@ -31,6 +31,7 @@ model Quiz {
   status    Int      @default(1) // 1 = active, 0 = deleted
   createdAt DateTime @default(now())
   questions Question[]
+  contexts  QuizContext[]
   attempts  QuizAttempt[]
 }
 
@@ -42,6 +43,15 @@ model Question {
   quiz      Quiz     @relation(fields: [quizId], references: [id])
   quizId    Int
   answers   Answer[]
+}
+
+model QuizContext {
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text
+  position  Int      @default(0)
+  quiz      Quiz     @relation(fields: [quizId], references: [id])
+  quizId    Int
+  createdAt DateTime @default(now())
 }
 
 model Answer {
