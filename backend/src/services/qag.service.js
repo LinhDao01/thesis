@@ -43,13 +43,23 @@ function preprocessText(rawText = '') {
   return chunks
 }
 
-function attachCitations(questions = [], fallbackText = '') {
-  return questions.map((q) => {
+function attachCitations(questions = [], fallback) {
+  const isArrayFallback = Array.isArray(fallback) && fallback.length > 0
+  const fallbackText = !isArrayFallback && typeof fallback === 'string' ? fallback : null
+
+  const getFallbackCitation = (index) => {
+    if (isArrayFallback) {
+      return fallback[index % fallback.length]
+    }
+    return fallbackText
+  }
+
+  return questions.map((q, idx) => {
     const citation =
       q.citation ||
       q.context ||
       (typeof q.source === 'string' ? q.source : '') ||
-      fallbackText ||
+      getFallbackCitation(idx) ||
       null
 
     return {
@@ -198,12 +208,12 @@ exports.generateFromText = async (text, numQuestions) => {
   try {
     const contexts = preprocessText(text)
     const payload = contexts.length ? contexts.join('\n\n') : text
-    const fallbackContext = payload || text
+    const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
 
     const questions = await pythonService.generateQuizFromText(payload, numQuestions || 5)
     // Python script returns array directly, wrap it
     const wrapped = Array.isArray(questions) ? { questions } : questions
-    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContext)
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
     return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
@@ -214,10 +224,10 @@ exports.generateFromText = async (text, numQuestions) => {
         console.log('Trying Hugging Face Space fallback...')
         const contexts = preprocessText(text)
         const payload = contexts.length ? contexts.join('\n\n') : text
-        const fallbackContext = payload || text
+        const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
 
         const res = await callQAGSpace(payload, numQuestions || 5)
-        res.questions = attachCitations(res.questions || [], fallbackContext)
+        res.questions = attachCitations(res.questions || [], fallbackContexts)
         return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
@@ -307,8 +317,9 @@ exports.generateFromFile = async (file, numQuestions) => {
     // Python script returns array directly, wrap it
     const contexts = preprocessText(content)
     const payloadContext = contexts.length ? contexts.join('\n\n') : content
+    const fallbackContexts = contexts.length ? contexts : (payloadContext ? [payloadContext] : [])
     const wrapped = Array.isArray(questions) ? { questions } : questions
-    wrapped.questions = attachCitations(wrapped.questions || [], payloadContext)
+    wrapped.questions = attachCitations(wrapped.questions || [], fallbackContexts)
     return wrapped
   } catch (error) {
     console.warn('Python quiz generation failed:', error.message)
@@ -319,8 +330,9 @@ exports.generateFromFile = async (file, numQuestions) => {
         console.log('Trying Hugging Face Space fallback...')
         const contexts = preprocessText(content)
         const payload = contexts.length ? contexts.join('\n\n') : content
+        const fallbackContexts = contexts.length ? contexts : (payload ? [payload] : [])
         const res = await callQAGSpace(payload, defaultQuestions)
-        res.questions = attachCitations(res.questions || [], payload)
+        res.questions = attachCitations(res.questions || [], fallbackContexts)
         return res
       } catch (hfError) {
         console.warn('Hugging Face fallback also failed:', hfError.message)
