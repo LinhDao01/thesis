@@ -64,7 +64,7 @@ async function generateQuizFromText(text, topN = 4) {
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
     const scriptDirEscaped = scriptDir.replace(/\\/g, '/');
     const tempFileEscaped = tempFile.replace(/\\/g, '/');
-    const command = `${pythonCmd} -c "import sys; import os; sys.path.insert(0, r'${scriptDirEscaped}'); os.chdir(r'${scriptDirEscaped}'); from quiz_api import generate_questions; import json; result = generate_questions(open(r'${tempFileEscaped}', 'r', encoding='utf-8').read(), top_n=${topN}); print(json.dumps(result, ensure_ascii=False))"`;
+    const command = `${pythonCmd} -c "import sys; import os; sys.path.insert(0, r'${scriptDirEscaped}'); os.chdir(r'${scriptDirEscaped}'); from merge_pine import generate_questions; import json; result = generate_questions(open(r'${tempFileEscaped}', 'r', encoding='utf-8').read(), top_n=${topN}); print(json.dumps(result, ensure_ascii=False))"`;
 
     const { stdout, stderr } = await execAsync(command, {
       maxBuffer: 10 * 1024 * 1024 // 10MB buffer
@@ -116,4 +116,3 @@ module.exports = {
   extractTextFromPDF,
   generateQuizFromText,
 };
-
