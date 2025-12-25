@@ -1,0 +1,72 @@
+:root {
+  --brand-blue: #01a625e0;
+  /* xanh hero */
+  --brand-bg: #f4f6fb;
+  /* nền xám nhạt */
+  --brand-orange: #FF7A59;
+  /* nút Create */
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--brand-bg);
+}
+
+.navbar-blur {
+  backdrop-filter: saturate(180%) blur(8px);
+  background: rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.btn-pill {
+  border-radius: 999px;
+  padding: .5rem 1.1rem;
+  font-weight: 600;
+}
+
+.btn-create {
+  background: var(--brand-orange);
+  color: #fff;
+}
+
+.btn-create:hover {
+  /* filter: brightness(0.95); */
+  color: #f58803
+}
+
+.hero-card {
+  background: var(--brand-blue);
+  border-radius: 24px;
+  color: #fff;
+  padding: 64px 24px;
+}
+
+.hero-title {
+  font-weight: 800;
+  letter-spacing: .3px;
+}
+
+.hero-subtitle {
+  opacity: 0.9;
+}
+
+.hero-btn {
+  background: transparent;
+  border: 2px solid #fff;
+  color: #fff;
+  border-radius: 999px;
+  padding: .75rem 1.25rem;
+  font-weight: 600;
+}
+
+.hero-btn:hover {
+  background: #ffffff14;
+  color: #fff;
+}
+
+.logo-cap {
+  width: 28px;
+  height: 28px;
+  margin-right: .5rem;
+}

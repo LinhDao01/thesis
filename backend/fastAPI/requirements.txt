@@ -1,0 +1,19 @@
+# PDF processing
+pymupdf==1.26.6  # fitz module for PDF
+pytesseract==0.3.10  # OCR support
+Pillow==10.1.0  # PIL for image processing
+
+# NLP libraries
+nltk==3.8.1  # Natural Language Toolkit
+spacy==3.7.2  # Advanced NLP processing
+
+# Machine Learning / Transformers
+torch>=2.0.0  # PyTorch (CPU or CUDA version)
+transformers==4.35.2  # Hugging Face transformers
+sentence-transformers==2.2.2  # Sentence embeddings
+huggingface_hub==0.21.4  # Hugging Face Hub
+
+# Scientific computing (phải tương thích với nhau)
+# NumPy version phải < 1.27.0 để tương thích với SciPy 1.10.1
+numpy==1.26.4
+scipy==1.10.1

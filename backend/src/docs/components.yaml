@@ -1,0 +1,145 @@
+# Common references for LetQuiz API
+components:
+  schemas:
+    # ======== User & Auth ========
+    UserPublic:
+      type: object
+      properties:
+        name:
+          type: string
+          description: user display name
+          example: Student One
+        email:
+          type: string
+          format: email
+          example: student@example.com
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: user email
+          example: student@example.com
+        password:
+          type: string
+          format: password
+          description: user password
+          example: 123456
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: mock JWT-like token for demo
+          example: mock-1700000000000
+        user:
+          $ref: '#/components/schemas/UserPublic'
+
+    # ======== Quiz & QAG ========
+    QuizQuestion:
+      type: object
+      properties:
+        question:
+          type: string
+          description: generated question text
+          example: What is the main idea of the passage?
+        options:
+          type: array
+          description: list of answer options
+          items:
+            type: string
+          example:
+            - To explain the benefits of exercise.
+            - To describe a famous athlete.
+            - To criticize unhealthy habits.
+            - To compare different sports.
+        answer_index:
+          type: integer
+          description: index of correct option in options array (0-based)
+          example: 0
+
+    Quiz:
+      type: object
+      properties:
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuizQuestion'
+          description: list of generated questions
+
+    # ======== JSend wrapper (output chuẩn của API) ========
+    JSendSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+          description: JSend status, always "success" for successful responses
+        data:
+          type: object
+          description: payload data
+          additionalProperties: true
+
+    JSendError:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [fail, error]
+          description: JSend status, "fail" hoặc "error"
+        message:
+          type: string
+          description: error message for client
+          example: Invalid email or password
+        code:
+          type: integer
+          description: optional error code
+          example: 1001
+        data:
+          type: object
+          description: optional extra error data
+          additionalProperties: true
+
+  responses:
+    # 2xx chung (nếu muốn dùng lại)
+    200Success:
+      description: Successful operation (JSend success wrapper)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JSendSuccess'
+
+    # 4xx / 5xx dùng chung trong các router
+    400BadRequest:
+      description: Bad request - invalid parameters or payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JSendError'
+
+    401Unauthorized:
+      description: Unauthorized - invalid credentials or missing token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JSendError'
+
+    404NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JSendError'
+
+    500InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/JSendError'
