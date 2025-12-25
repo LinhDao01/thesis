@@ -1,3 +1,4 @@
+import os
 import torch
 import random
 import re
@@ -6,6 +7,9 @@ import nltk
 from nltk.tokenize import sent_tokenize
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from sentence_transformers import SentenceTransformer, util
+from nltk.corpus import wordnet as wn
+
+from extract_text import process_pdf_to_contexts
 
 # Set NLTK data path to use existing wordnet data
 nltk_data_path = r"C:\Users\MSIGF63\AppData\Roaming\nltk_data"
@@ -14,9 +18,8 @@ if nltk_data_path not in nltk.data.path:
 
 # Download punkt if needed (for tokenization)
 nltk.download("punkt", quiet=True)
-
-# Import wordnet after setting the path
-from nltk.corpus import wordnet as wn
+nltk.download("wordnet", quiet=True)
+nltk.download("omw-1.4", quiet=True)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -26,14 +29,14 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # QAG model (FINETUNED)
 QAG_MODEL_PATH = "E:\code\backend\fastAPI\flan-t5-large"
-qag_tokenizer = T5Tokenizer.from_pretrained("./flan-t5-large")
-qag_model = T5ForConditionalGeneration.from_pretrained(QAG_MODEL_PATH).to(device)
-qag_model.eval()
+_qag_model = None
+_qag_tokenizer = None
 
 # Distractor model (BASE)
-dist_tokenizer = T5Tokenizer.from_pretrained("google/flan-t5-large")
-dist_model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-large").to(device)
-dist_model.eval()
+DIST_MODEL_NAME = os.environ.get("DIST_MODEL_NAME", "google/flan-t5-large")
+DISTRACTOR_ENABLED = os.environ.get("ENABLE_DISTRACTORS", "1") != "0"
+_dist_tokenizer = None
+_dist_model = None
 
 # NLP tools
 nlp = spacy.load("en_core_web_sm")
@@ -83,6 +86,54 @@ def is_bad_answer(ans: str) -> bool:
     return False
 
 
+def _load_qag_model():
+    """
+    Lazy-load the finetuned QAG model with lower memory pressure.
+    Uses float16 on CUDA when available to reduce footprint and avoid native crashes.
+    """
+    global _qag_model, _qag_tokenizer
+    if _qag_model is not None:
+        return _qag_model, _qag_tokenizer
+
+    _qag_tokenizer = T5Tokenizer.from_pretrained("./flan-t5-large")
+    try:
+        _qag_model = T5ForConditionalGeneration.from_pretrained(
+            QAG_MODEL_PATH,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16 if device == "cuda" else None
+        ).to(device)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Failed to load QAG model. Reduce model size or set CUDA_VISIBLE_DEVICES='' to force CPU."
+        ) from exc
+    _qag_model.eval()
+    return _qag_model, _qag_tokenizer
+
+
+def _load_dist_model():
+    """
+    Lazy-load the distractor model only when needed to avoid double-loading large checkpoints.
+    Can be disabled via ENABLE_DISTRACTORS=0 to prevent OOM/driver crashes.
+    """
+    global _dist_model, _dist_tokenizer
+    if _dist_model is not None and _dist_tokenizer is not None:
+        return _dist_model, _dist_tokenizer
+
+    _dist_tokenizer = T5Tokenizer.from_pretrained(DIST_MODEL_NAME)
+    try:
+        _dist_model = T5ForConditionalGeneration.from_pretrained(
+            DIST_MODEL_NAME,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16 if device == "cuda" else None
+        ).to(device)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Failed to load distractor model. Set ENABLE_DISTRACTORS=0 or DIST_MODEL_NAME to a smaller checkpoint."
+        ) from exc
+    _dist_model.eval()
+    return _dist_model, _dist_tokenizer
+
+
 QUESTION_TYPES = ["short", "cloze", "mcq"]
 
 def generate_questions_from_context(
@@ -100,12 +151,15 @@ def generate_questions_from_context(
             break
         if ans.lower() in used_answers:
             continue
+        if is_bad_answer(ans):
+            continue
 
         q_type = random.choice(QUESTION_TYPES)
         base_question = generate_question(context, ans)
 
         item = {
             "context": context,
+            "context_text": context,
             "type": q_type,
             "question": base_question,
             "answer": ans
@@ -198,6 +252,10 @@ def mmr_select(candidates, query, k=3, lam=0.7):
 
 
 def generate_distractors(context, question, answer, k=3):
+    if not DISTRACTOR_ENABLED:
+        return []
+
+    dist_model, dist_tokenizer = _load_dist_model()
     prompt = f"""
 Generate plausible but incorrect distractors.
 Question: {question}
@@ -236,6 +294,35 @@ Distractors:
 
     # MMR selection
     return mmr_select(candidates, question + " " + answer, k)
+
+
+
+def generate_question(context, answer, max_new_tokens=80):
+    qag_model, qag_tokenizer = _load_qag_model()
+    prompt = f"""
+Generate a question whose answer is "{answer}".
+Context: {context}
+Question:
+"""
+
+    inputs = qag_tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512
+    ).to(device)
+
+    with torch.no_grad():
+        output = qag_model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            top_p=0.9,
+            temperature=0.8,
+            num_return_sequences=1
+        )
+
+    return qag_tokenizer.decode(output[0], skip_special_tokens=True).strip()
 
 
 
